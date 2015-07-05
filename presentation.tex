@@ -8,6 +8,11 @@
 \subtitle{A Type-Level DSL for Web APIs}
 \author{Julian K. Arni}
 \date{Curry On, Prague, July 6th 2015}
+
+
+
+\AtBeginSection{\frame{\sectionpage}}
+\AtBeginSubsection{\frame{\subsectionpage}}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \begin{document}
@@ -54,6 +59,7 @@ type CounterAPI = GetCounter :<|> StepCounter
 
 \begin{frame}[fragile]
 \frametitle{An Example}
+\pause
 \begin{tcolorbox}{Counter API}
 \begin{verbatim}
 type GetCounter = Get '[JSON] CounterVal
@@ -68,11 +74,15 @@ newtype CounterVal = CounterVal {getCounterVal :: Int}
 
 counterAPI :: Proxy CounterAPI
 counterAPI = Proxy
+
+instance ToSample CounterVal where
+  toSample _ = Just (CounterVal 42)
 \end{verbatim}
 \end{frame}
 
 \begin{frame}[fragile]
 \frametitle{Documentation}
+\pause
 \begin{verbatim}
 counterDocs :: String
 counterDocs = markdown $ docs counterAPI
@@ -102,6 +112,7 @@ counterDocs = markdown $ docs counterAPI
 
 \begin{frame}[fragile]
 \frametitle{Client Functions}
+\pause
 \begin{verbatim}
 getCounter' :<|> stepCounter'
  = client counterAPI ( BaseUrl Http "localhost" 8000 )
@@ -115,9 +126,13 @@ setCounter' :: EitherT ServantError IO ()
 
 \begin{frame}[fragile]
 \frametitle{Safe links}
+\pause
 \begin{verbatim}
 safeLink counterAPI (Proxy :: Proxy StepCounter)
 -- > "step"
+\end{verbatim}
+\pause
+\begin{verbatim}
 safeLink counterAPI (Proxy :: "doesntexist" :> Get '[] ())
 -- > type error
 \end{verbatim}
@@ -132,7 +147,7 @@ getCounter ctr = liftIO $ readTVarIO ctr
 
 stepCounter :: TVar CounterVal -> Server StepCounter
 stepCounter ctr
-  = liftIO $ atomatically $ modifyTVar ctr (+ 1)
+  = liftIO $ atomically $ modifyTVar ctr (+ 1)
 \end{verbatim}
 \pause
 \begin{verbatim}
@@ -144,7 +159,7 @@ server ctr = getCounter ctr
 \begin{verbatim}
 main = do
   initCtr <- newTVar 0
-  run 8000 (serve counterAPI server)
+  run 8000 (serve counterAPI $ server initCtr)
 \end{verbatim}
 \end{frame}
 
@@ -332,6 +347,12 @@ instance Show t => HasServer (GetText t) where
     |   pathIsEmpty request
     &&  requestMethod request == methodGet = accept
     |   otherwise = respond NotMatched
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{HasServer}
+\begin{verbatim}
      where
      accept = do
        e <- runEitherT handler
@@ -367,8 +388,9 @@ instance  (HasServer api1, HasServer api2) =>
 \begin{frame}
 \frametitle{References}
 \begin{description}
+\item[Slides] https://github.com/jkarni/curry-on-servant
 \item[Type-level DSL] L\"{a}mmel, Ralf and Ostermann, Klaus,
-\textit{Software Extension and Integration with Type Classes},
+\textit{Software Extension and Integration with Type Classes}, ACM, 2006.
 \item[Servant WGP paper]
 \url{http://haskell-servant.github.io/posts/2015-05-25-servant-paper-wgp-2015.html}
 \item[Servant website] \url{http://haskell-servant.github.io/}
