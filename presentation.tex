@@ -1,0 +1,378 @@
+\documentclass{beamer}
+
+\usepackage{verbatim}
+\usepackage{tcolorbox}
+\usepackage{lipsum}
+
+\title{Servant}
+\subtitle{A Type-Level DSL for Web APIs}
+\author{Julian K. Arni}
+\date{Curry On, Prague, July 6th 2015}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{document}
+\frame{\titlepage}
+
+\setbeamertemplate{footline}[frame number]
+\begin{frame}
+\frametitle{Outline}
+\tableofcontents[]
+\end{frame}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Rethinking Web Frameworks}
+
+\begin{frame}
+\frametitle{The Main Idea}
+\pause
+\begin{tcolorbox}
+Web API descriptions should be central
+\end{tcolorbox}
+\pause
+\begin{enumerate}
+\item Accords with development practice \pause
+\item Clarifies behaviour of programs \pause
+\item Is a reusable component
+\end{enumerate}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{An Example}
+\begin{tcolorbox}{Counter API}
+\begin{verbatim}
+GET  /       obtain the current value
+POST /step   increment the current value
+\end{verbatim}
+\end{tcolorbox}
+\pause
+\begin{verbatim}
+type GetCounter = Get '[JSON] CounterVal
+type StepCounter = "step" :> Post '[] ()
+type CounterAPI = GetCounter :<|> StepCounter
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{An Example}
+\begin{tcolorbox}{Counter API}
+\begin{verbatim}
+type GetCounter = Get '[JSON] CounterVal
+type StepCounter = "step" :> Post '[] ()
+type CounterAPI = GetCounter :<|> StepCounter
+\end{verbatim}
+\end{tcolorbox}
+\pause
+\begin{verbatim}
+newtype CounterVal = CounterVal {getCounterVal :: Int}
+  deriving (ToJSON)
+
+counterAPI :: Proxy CounterAPI
+counterAPI = Proxy
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Documentation}
+\begin{verbatim}
+counterDocs :: String
+counterDocs = markdown $ docs counterAPI
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\begin{verbatim}
+## GET /
+
+#### Response:
+
+- Status code 200
+- Headers: []
+
+- Supported content types are:
+
+    - `application/json`
+
+- Response body as below.
+
+```javascript
+42
+```
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Client Functions}
+\begin{verbatim}
+getCounter' :<|> stepCounter'
+ = client counterAPI ( BaseUrl Http "localhost" 8000 )
+\end{verbatim}
+\pause
+\begin{verbatim}
+getCounter' :: EitherT ServantError IO CounterVal
+setCounter' :: EitherT ServantError IO ()
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Safe links}
+\begin{verbatim}
+safeLink counterAPI (Proxy :: Proxy StepCounter)
+-- > "step"
+safeLink counterAPI (Proxy :: "doesntexist" :> Get '[] ())
+-- > type error
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Server}
+\begin{verbatim}
+
+getCounter :: TVar CounterVal -> Server GetCounter
+getCounter ctr = liftIO $ readTVarIO ctr
+
+stepCounter :: TVar CounterVal -> Server StepCounter
+stepCounter ctr
+  = liftIO $ atomatically $ modifyTVar ctr (+ 1)
+\end{verbatim}
+\pause
+\begin{verbatim}
+server :: TVar CounterVal -> Server CounterAPI
+server ctr = getCounter ctr
+       :<|>  stepCounter ctr
+\end{verbatim}
+\pause
+\begin{verbatim}
+main = do
+  initCtr <- newTVar 0
+  run 8000 (serve counterAPI server)
+\end{verbatim}
+\end{frame}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Type-level DSLs}
+
+\begin{frame}[fragile]
+\frametitle{A Simple DSL}
+
+\begin{tcolorbox}
+\begin{verbatim}
+Add (Add One One) One
+\end{verbatim}
+\end{tcolorbox} \pause
+
+\begin{verbatim}
+data Expr = Add Expr Expr
+          | One
+
+eval :: Expr -> Int
+eval One = 1
+eval (Add x y) = eval x + eval y
+\end{verbatim}
+\end{frame}
+
+
+
+\begin{frame}[fragile]
+\frametitle{A Simple DSL}
+
+\begin{tcolorbox}
+\begin{verbatim}
+Add (Add One One) One
+\end{verbatim}
+\end{tcolorbox}
+
+\begin{verbatim}
+class Eval x where
+    eval :: Proxy x -> Int
+\end{verbatim}
+\pause
+\begin{verbatim}
+data One
+data Add a b
+instance Eval One where
+    eval _ = 1
+instance (Eval a, Eval b) => Eval (Add a b) where
+    eval _ = eval (Proxy :: Proxy a)
+          +  eval (Proxy :: Proxy b)
+\end{verbatim}
+\end{frame}
+
+
+\begin{frame}
+\frametitle{Type-level Advantages}
+\begin{enumerate}
+\item Extensible \pause
+\item Right side of phase distinction
+\end{enumerate}
+\end{frame}
+
+
+\begin{frame}[fragile]
+\frametitle{A Fancier DSL} \pause
+
+\begin{verbatim}
+data Hole
+\end{verbatim}
+\pause
+\begin{verbatim}
+class Eval' a where
+    type Value a r :: *
+    eval' :: Proxy a -> (Int -> r) -> Value a r
+\end{verbatim}
+\pause
+\begin{verbatim}
+instance Eval' One where
+    type Value One r = r
+    eval' _ ret = ret 1
+\end{verbatim}
+\pause
+\begin{verbatim}
+instance (Eval' a, Eval' b) => Eval' (Add a b) where
+    type Value (Add a b) r = Value a (Value b r)
+    eval' _ ret = eval' (Proxy :: Proxy a) (\v1 ->
+                  eval' (Proxy :: Proxy b) (\v2 ->
+                  ret (v1 + v2)))
+\end{verbatim}
+\pause
+\begin{verbatim}
+instance Eval' Hole where
+    type Value Hole r = Int -> r
+    eval' _ ret n = ret n
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{A Fancier DSL}
+\begin{verbatim}
+type Succ = Add One Hole
+\end{verbatim}\pause
+\begin{verbatim}
+succ = eval' (Proxy :: Proxy Succ) -- :: (Int -> Int)
+succ 5 -- > 6
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{A Fancier DSL}
+\begin{verbatim}
+type Sum = Add Hole Hole
+\end{verbatim}\pause
+\begin{verbatim}
+sum = eval' (Proxy :: Proxy Sum) -- :: (Int -> Int -> Int)
+sum 5 10 -- > 15
+\end{verbatim}
+\end{frame}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Servant DSL}
+
+\begin{frame}[fragile]
+\frametitle{Servant Grammar}
+\begin{verbatim}
+api        ::=  api :<|> api
+           |    item :> api
+           |    method
+
+item       ::=  symbol
+           |    ReqBody      ctypes type
+           |    Capture      symbol stype
+           |    ...
+\end{verbatim}
+\end{frame}
+\begin{frame}[fragile]
+\begin{verbatim}
+method     ::=  Get     ctypes type
+           |    Put     ctypes type
+           |    Post    ctypes type
+           |    Delete  ctypes type
+           |    Raw
+           |    ...
+
+type       ::=  <Haskell Types>
+
+ctypes     ::=  '[ctype, ...]
+
+ctype      ::=  PlainText
+           |    JSON
+           |    HTML
+           |    ...
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{HasServer}
+
+\begin{verbatim}
+class HasServer api where
+  type Server api :: *
+  route :: Proxy api -> Server api -> RoutingApplication
+\end{verbatim}
+\pause
+\begin{verbatim}
+type RoutingApplication  =
+       Request
+   ->  (RouteResult Response -> IO ResponseReceived)
+   ->  IO ResponseReceived
+
+data RouteResult a = NotMatched | Matched a
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{HasServer}
+\begin{verbatim}
+data GetText t
+
+instance Show t => HasServer (GetText t) where
+  type Server (GetText t) = EitherT ServantErr IO t
+
+  route  ::  Proxy (GetText t) -> Server (GetText t)
+         ->  RoutingApplication
+  route _ handler request respond
+    |   pathIsEmpty request
+    &&  requestMethod request == methodGet = accept
+    |   otherwise = respond NotMatched
+     where
+     accept = do
+       e <- runEitherT handler
+       respond $ case e of
+         Right t   ->  Matched $ responseLBS ok200
+                         [("Content-Type", "text/plain")]
+                         (fromString (show t))
+         Left err  ->  Matched $ responseServantErr err
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{HasServer}
+\begin{verbatim}
+data a :<|> b = a :<|> b
+infixr 8 :<|>
+
+instance  (HasServer api1, HasServer api2) =>
+          HasServer (api1 :<|> api2) where
+
+  type  Server (api1 :<|> api2) =
+          Server api1 :<|> Server api2
+
+  route _ (handler1 :<|> handler2) request respond =
+    route (Proxy :: Proxy api1) handler1 request $ \ r ->
+      case r of
+        Matched result  ->  respond (Matched result)
+        NotMatched      ->  route (Proxy :: Proxy api2)
+                              handler2 request respond
+\end{verbatim}
+\end{frame}
+
+\begin{frame}
+\frametitle{References}
+\begin{description}
+\item[Type-level DSL] L\"{a}mmel, Ralf and Ostermann, Klaus,
+\textit{Software Extension and Integration with Type Classes},
+\item[Servant WGP paper]
+\url{http://haskell-servant.github.io/posts/2015-05-25-servant-paper-wgp-2015.html}
+\item[Servant website] \url{http://haskell-servant.github.io/}
+\end{description}
+\end{frame}
+
+\end{document}
