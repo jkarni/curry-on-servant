@@ -195,7 +195,7 @@ eval (Add x y) = eval x + eval y
 Add (Add One One) One
 \end{verbatim}
 \end{tcolorbox}
-
+\pause
 \begin{verbatim}
 class Eval x where
     eval :: Proxy x -> Int
@@ -283,6 +283,7 @@ sum 5 10 -- > 15
 
 \begin{frame}[fragile]
 \frametitle{Servant Grammar}
+\pause
 \begin{verbatim}
 api        ::=  api :<|> api
            |    item :> api
@@ -334,7 +335,8 @@ data RouteResult a = NotMatched | Matched a
 \end{frame}
 
 \begin{frame}[fragile]
-\frametitle{HasServer}
+\frametitle{HasServer - GetText}
+\pause
 \begin{verbatim}
 data GetText t
 
@@ -351,7 +353,7 @@ instance Show t => HasServer (GetText t) where
 \end{frame}
 
 \begin{frame}[fragile]
-\frametitle{HasServer}
+\frametitle{HasServer - GetText}
 \begin{verbatim}
      where
      accept = do
@@ -365,7 +367,7 @@ instance Show t => HasServer (GetText t) where
 \end{frame}
 
 \begin{frame}[fragile]
-\frametitle{HasServer}
+\frametitle{HasServer - Alternative}
 \begin{verbatim}
 data a :<|> b = a :<|> b
 infixr 8 :<|>
@@ -385,10 +387,33 @@ instance  (HasServer api1, HasServer api2) =>
 \end{verbatim}
 \end{frame}
 
+
+\begin{frame}[fragile]
+    \frametitle{HasServer - Capture}
+    \pause 
+\begin{verbatim}
+instance (KnownSymbol sym, FromText t, HasServer api)
+      => HasServer (Capture sym t :> api) where
+
+  type Server (Capture sym t :> api) = t -> Server api
+
+  route _ handler request respond =
+    case processedPathInfo request of
+      p : ps | Just v <- (fromText p :: Maybe t)
+         ->  forward ps v
+      _  ->  respond NotMatched
+    where
+    forward ps v = route (Proxy :: Proxy api) (handler v)
+                    (request { pathInfo = ps }) respond
+  \end{verbatim}
+\end{frame}
+
 \begin{frame}
 \frametitle{References}
 \begin{description}
-\item[Slides] https://github.com/jkarni/curry-on-servant
+
+\item[Slides] 
+    \url{https://github.com/jkarni/curry-on-servant}
 \item[Type-level DSL] L\"{a}mmel, Ralf and Ostermann, Klaus,
 \textit{Software Extension and Integration with Type Classes}, ACM, 2006.
 \item[Servant WGP paper]
